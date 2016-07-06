@@ -3,7 +3,10 @@
   "description": "Element for capturing an area coverage",
   "main": "oc-coverage-input.html",
   "dependencies": {
-    "polymer": "Polymer/polymer#^1.4.0"
+    "polymer": "Polymer/polymer#^1.4.0",
+    "google-map": "GoogleWebComponents/google-map#^1.1.10",
+    "paper-button": "PolymerElements/paper-button#^1.0.12",
+    "paper-toggle-button": "PolymerElements/paper-toggle-button#^1.1.2"
   },
   "devDependencies": {
     "iron-component-page": "PolymerElements/iron-component-page#^1.0.0",

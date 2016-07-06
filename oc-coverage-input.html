@@ -1,5 +1,14 @@
 <link rel="import" href="../polymer/polymer.html">
 
+<link rel="import" href="../paper-button/paper-button.html">
+<link rel="import" href="../paper-toggle-button/paper-toggle-button.html">
+
+
+<link rel="import" href="../google-map/google-map.html">
+<link rel="import" href="../google-map/google-map-marker.html">
+<link rel="import" href="../google-apis/google-maps-api.html">
+
+
 <!--
 `oc-coverage-input`
 Element for capturing an area coverage
@@ -13,8 +22,35 @@ Element for capturing an area coverage
       :host {
         display: block;
       }
+      google-map {
+        min-height: 250px;
+        min-Width: 350px;
+        width: 100%;
+        height: 100%;
+      }
+      paper-toggle-button {
+        margin: 5px;
+      }
+      paper-button {
+        margin: 5px;
+        color: #2f9c0a
+      }
     </style>
-    <h2>Hello [[prop1]]</h2>
+
+    <span>
+      <paper-toggle-button id="editCoverage" on-change="_toggleChanged" checked="{{ editMode }}">[[ _toggleLabel ]]</paper-toggle-button>
+      <paper-button id="addCoverage" raised on-tap="_onAddNewTapped" hidden$="[[ !editMode ]]">Add New</paper-button>
+      <paper-button id="removeCoverage" raised on-tap="_onRemoveTapped" hidden$="[[ !editMode ]]">Remove</paper-button>
+    </span>
+    <google-maps-api id="mapsApi" api-key="[[ googleMapsApiKey ]]"></google-maps-api>
+    <google-map
+            id="map"
+            api-key="[[ googleMapsApiKey ]]"
+            disable-default-ui
+            latitude="[[ defaultLocation.latitude ]]"
+            longitude="[[ defaultLocation.longitude ]]">
+    </google-map>
+
   </template>
 
   <script>
@@ -23,12 +59,157 @@ Element for capturing an area coverage
       is: 'oc-coverage-input',
 
       properties: {
-        prop1: {
-          type: String,
-          value: 'oc-coverage-input',
+        googleMapsApiKey: String,
+        defaultLocation: {
+          type: Object,
+          value: { latitude:17.242668, longitude:19.389350 }
         },
+        coverages: {
+          type: Array,
+          value: [],
+          notify: true
+        },
+        editMode: {
+          type: Boolean,
+          value: false,
+          notify: true
+        }
       },
 
+      observers: [
+          'coveragesChanged(coverages)'
+      ],
+
+      listeners: {
+        'google-map-ready':'_mapReady'
+      },
+
+      coveragesChanged: function() {
+        this.$.editCoverage.hidden = this.coverages.length === 0;
+      },
+
+      ready: function() {
+        this._toggleLabel = "Edit";
+        this._circles = [];
+        this._zoomLevels = [
+          {level:5, meters:500000},
+          {level:10, meters:15000},
+          {level:15, meters:1000},
+          {level:20, meters:10}
+        ];
+      },
+
+      _toggleChanged: function() {
+        this._toggleLabel = this.editMode ? "View" : "Edit";
+          this._deselectAllCircles();
+      },
+
+      _mapReady: function() {
+        /*// Show create polygon button
+        this.$.map.map.data.setControls(['Polygon']);
+        // Make it editable
+        this.$.map.map.data.setStyle(function(feature) {
+          return {
+          draggable:true,
+          editable:true
+          };
+        }.bind(this));*/
+
+        for (var i in this.coverages) {
+          this._addNewCircle(this.coverages[i].latitude, this.coverages[i].longitude, this.coverages[i].radius, false);
+        }
+
+        if (this._circles.length > 0) {
+          this._zoomFit();
+        } else {
+          this.$.map.zoom =
+                  (this.defaultLocation.latitude === 17.242668 && this.defaultLocation.longitude === 19.389350) ? 1 : 10;
+        }
+      },
+
+      _zoomFit: function() {
+        var bounds = this._circles[0].getBounds();
+        for (var i = 1; i < this._circles.length; i++) {
+          bounds.union(this._circles[i].getBounds());
+        }
+        this.$.map.map.fitBounds(bounds);
+      },
+
+      _onAddNewTapped: function() {
+        this._deselectAllCircles();
+        this._addNewCircle(this.$.map.latitude, this.$.map.longitude, this._findZoomLevelRadius(), true);
+      },
+
+      _findZoomLevelRadius: function() {
+        for (var i in this._zoomLevels) {
+          var key = this._zoomLevels[i].level;
+          if (this.$.map.zoom <= key) {
+            return this._zoomLevels[i].meters;
+          }
+        }
+        return this._zoomLevels[0].meters;
+      },
+
+      _addNewCircle(latitude, longitude, radius, editable) {
+        var circle = new this.$.mapsApi.api.Circle({
+          strokeOpacity: 0.8,
+          strokeWeight: 2,
+          fillOpacity: 0.35,
+          map: this.$.map.map,
+          center: {lat: latitude, lng: longitude },
+          radius: radius
+        });
+
+        if (editable) {
+          this._selectCircle(circle);
+        } else {
+          this._deselectCircle(circle);
+        }
+
+        this.$.mapsApi.api.event.addListener(circle, 'click', this._circleClicked.bind(this, circle));
+
+        this._circles.push(circle);
+      },
+
+      _onRemoveTapped: function() {
+        for (var i in this._circles) {
+          if (this._circles[i].editable) {
+            this._circles[i].setMap(null);
+            this._circles.splice(i, 1);
+          }
+        }
+      },
+
+      _circleClicked: function(circle) {
+        if (this.editMode) {
+          this._deselectAllCircles();
+          this._selectCircle(circle);
+        }
+      },
+
+      _selectCircle: function(circle) {
+        circle.setOptions({
+          strokeColor: '#2f9c0a',
+          fillColor: '#2f9c0a',
+          editable: true,
+          draggable: true
+        });
+      },
+
+      _deselectCircle: function(circle) {
+        circle.setOptions({
+          strokeColor: '#FF0000',
+          fillColor: '#FF0000',
+          editable: false,
+          draggable: false
+        });
+      },
+
+      _deselectAllCircles: function() {
+        for (var i in this._circles) {
+          this._deselectCircle(this._circles[i]);
+        }
+      }
     });
   </script>
 </dom-module>
