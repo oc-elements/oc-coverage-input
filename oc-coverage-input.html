@@ -2,6 +2,7 @@
 
 <link rel="import" href="../paper-button/paper-button.html">
 <link rel="import" href="../paper-toggle-button/paper-toggle-button.html">
+<link rel="import" href="../iron-collapse/iron-collapse.html">
 
 
 <link rel="import" href="../google-map/google-map.html">
@@ -13,7 +14,7 @@
 `oc-coverage-input`
 Element for capturing an area coverage
 
-@demo demo/index.html 
+@demo demo/index.html
 -->
 
 <dom-module id="oc-coverage-input">
@@ -23,7 +24,7 @@ Element for capturing an area coverage
         display: block;
       }
       google-map {
-        min-height: 250px;
+        min-height: 500px;
         min-Width: 350px;
         width: 100%;
         height: 100%;
@@ -32,23 +33,28 @@ Element for capturing an area coverage
         margin: 5px;
       }
       paper-button {
-        margin: 5px;
+        margin: 10px;
       }
     </style>
 
-    <span>
-      <paper-toggle-button id="editCoverage" on-change="_toggleChanged" checked="{{ editMode }}">[[ _toggleLabel ]]</paper-toggle-button>
-      <paper-button id="addCoverage" raised on-tap="_onAddNewTapped" hidden$="[[ !editMode ]]">Add New</paper-button>
-      <paper-button id="removeCoverage" raised on-tap="_onRemoveTapped" hidden$="[[ !editMode ]]">Remove</paper-button>
-    </span>
-    <google-maps-api id="mapsApi" api-key="[[ googleMapsApiKey ]]"></google-maps-api>
-    <google-map
-            id="map"
-            api-key="[[ googleMapsApiKey ]]"
-            disable-default-ui
-            latitude="[[ defaultLocation.latitude ]]"
-            longitude="[[ defaultLocation.longitude ]]">
-    </google-map>
+    <iron-collapse opened$="[[ !loading ]]">
+      <span>
+        <paper-toggle-button id="editCoverage" on-change="_toggleChanged" checked="{{ editMode }}">[[ _toggleLabel ]]</paper-toggle-button>
+        <iron-collapse opened$="[[ editMode ]]">
+          <paper-button id="addCoverage" raised on-tap="_onAddNewTapped">Add New</paper-button>
+          <paper-button id="removeCoverage" raised on-tap="_onRemoveTapped">Remove</paper-button>
+        </iron-collapse>
+      </span>
+      <google-maps-api id="mapsApi" api-key="[[ googleMapsApiKey ]]"></google-maps-api>
+      <google-map
+              id="map"
+              api-key="[[ googleMapsApiKey ]]"
+              disable-default-ui>
+      </google-map>
+    </iron-collapse>
+    <iron-collapse opened$="[[ loading ]]">
+      <div>Loading map...</div>
+    </iron-collapse>
 
   </template>
 
@@ -61,35 +67,33 @@ Element for capturing an area coverage
         googleMapsApiKey: String,
         defaultLocation: {
           type: Object,
+          observer: '_defaultLocationChanged',
           value: { latitude:17.242668, longitude:19.389350 }
         },
         coverages: {
           type: Array,
           value: [],
-          notify: true
+          notify: true,
+          observer: '_coveragesChanged'
         },
         editMode: {
           type: Boolean,
           value: false,
           notify: true
+        },
+        loading: {
+          type: Boolean,
+          value: false
         }
       },
 
-      observers: [
-          'coveragesChanged(coverages)'
-      ],
-
       listeners: {
-        'google-map-ready':'_mapReady'
-      },
-
-      coveragesChanged: function() {
-        this.$.editCoverage.hidden = this.coverages.length === 0;
+        'google-map-ready':'_googleMapReady'
       },
 
       ready: function() {
         this._toggleLabel = "Edit";
-        this._circles = [];
+
         this._zoomLevels = [
           {level:5, meters:500000},
           {level:10, meters:15000},
@@ -98,31 +102,65 @@ Element for capturing an area coverage
         ];
       },
 
-      _toggleChanged: function() {
-        this._toggleLabel = this.editMode ? "View" : "Edit";
-        this._deselectAllCircles();
+      getCoverages: function() {
+        var coverages = [];
+        for (var i in this._circles) {
+          coverages.push({
+            id: this._circles[i].id,
+            latitude: this._circles[i].getCenter().lat(),
+            longitude: this._circles[i].getCenter().lng(),
+            radius: this._circles[i].radius
+          })
+        }
+        return coverages;
       },
 
-      _mapReady: function() {
+      _defaultLocationChanged: function() {
+        this._initDefaultLocation();
+      },
+
+      _coveragesChanged: function() {
+        if (this._mapReady) {
+          this._initCoverages();
+        }
+      },
+
+      _googleMapReady: function() {
+        // Sample code for when we switch over to polygons one day
         /*// Show create polygon button
-        this.$.map.map.data.setControls(['Polygon']);
-        // Make it editable
-        this.$.map.map.data.setStyle(function(feature) {
-          return {
-          draggable:true,
-          editable:true
-          };
-        }.bind(this));*/
+         this.$.map.map.data.setControls(['Polygon']);
+         // Make it editable
+         this.$.map.map.data.setStyle(function(feature) {
+         return {
+         draggable:true,
+         editable:true
+         };
+         }.bind(this));*/
+
+        this._initCoverages();
+        this._initDefaultLocation();
+        this._mapReady = true;
+      },
+
+      _initDefaultLocation: function() {
+        if (this.coverages && this.coverages.length === 0) {
+          this.$.map.latitude = this.defaultLocation.latitude;
+          this.$.map.longitude = this.defaultLocation.longitude;
+          this.$.map.zoom =
+                  (this.defaultLocation.latitude === 17.242668 && this.defaultLocation.longitude === 19.389350) ? 2 : 10;
+        }
+      },
+
+      _initCoverages: function() {
+        this._clearMap();
 
         for (var i in this.coverages) {
-          this._addNewCircle(this.coverages[i].latitude, this.coverages[i].longitude, this.coverages[i].radius, false);
+          var circle = this._addNewCircle(this.coverages[i].latitude, this.coverages[i].longitude, this.coverages[i].radius, false);
+          circle.id = this.coverages[i].id;
         }
 
         if (this._circles.length > 0) {
           this._zoomFit();
-        } else {
-          this.$.map.zoom =
-                  (this.defaultLocation.latitude === 17.242668 && this.defaultLocation.longitude === 19.389350) ? 1 : 10;
         }
       },
 
@@ -132,6 +170,11 @@ Element for capturing an area coverage
           bounds.union(this._circles[i].getBounds());
         }
         this.$.map.map.fitBounds(bounds);
+      },
+
+      _toggleChanged: function() {
+        this._toggleLabel = this.editMode ? "View" : "Edit";
+        this._deselectAllCircles();
       },
 
       _onAddNewTapped: function() {
@@ -151,11 +194,13 @@ Element for capturing an area coverage
 
       _addNewCircle(latitude, longitude, radius, editable) {
         var circle = new this.$.mapsApi.api.Circle({
+          strokeColor: '#FF0000',
+          fillColor: '#FF0000',
           strokeOpacity: 0.8,
           strokeWeight: 2,
           fillOpacity: 0.35,
           map: this.$.map.map,
-          center: {lat: latitude, lng: longitude },
+          center: {lat: parseFloat(latitude), lng: parseFloat(longitude) },
           radius: radius
         });
 
@@ -168,6 +213,15 @@ Element for capturing an area coverage
         this.$.mapsApi.api.event.addListener(circle, 'click', this._circleClicked.bind(this, circle));
 
         this._circles.push(circle);
+
+        return circle;
+      },
+
+      _clearMap: function() {
+        for (var i in this._circles) {
+          this._circles[i].setMap(null);
+        }
+        this._circles = [];
       },
 
       _onRemoveTapped: function() {
@@ -188,8 +242,6 @@ Element for capturing an area coverage
 
       _selectCircle: function(circle) {
         circle.setOptions({
-          strokeColor: '#2f9c0a',
-          fillColor: '#2f9c0a',
           editable: true,
           draggable: true
         });
@@ -197,8 +249,6 @@ Element for capturing an area coverage
 
       _deselectCircle: function(circle) {
         circle.setOptions({
-          strokeColor: '#FF0000',
-          fillColor: '#FF0000',
           editable: false,
           draggable: false
         });
